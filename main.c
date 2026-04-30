@@ -1,5 +1,6 @@
 #include <stdio.h>
 
 int main(){
-    printf("Hello Wolrd");
+    printf("Welcome to Student Management System Project\n");
+    return 0;
 }
