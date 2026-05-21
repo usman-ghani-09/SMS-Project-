@@ -1,9 +1,11 @@
 #include "sms.h"
 
+/* Dynamic label pairs updated on refresh */
 static GtkWidget *p_name_lbl,*p_roll_lbl,*p_class_lbl,*p_age_lbl;
 static GtkWidget *p_gender_lbl,*p_phone_lbl,*p_email_lbl,*p_dob_lbl,*p_enroll_lbl;
 static GtkWidget *p_exam_box,*p_test_box,*p_fee_box;
 static GtkWidget *p_avg_exam_lbl,*p_avg_test_lbl,*p_fee_status_lbl;
+static GtkWidget *p_avatar_img;
 
 static GtkWidget *info_row(GtkWidget *grid,int row,const char *field,GtkWidget **val_out){
     GtkWidget *lbl=gtk_label_new(field);
@@ -32,6 +34,13 @@ void refresh_profile(int student_id){
     Student s=findStudentById(student_id);
     if(s.student_id==0)return;
 
+    /* Update avatar based on gender */
+    if(p_avatar_img){
+        const char *icon_file=(s.gender[0]=='M' || s.gender[0]=='m') ? "icons/boy.png" : "icons/girl.png";
+        gtk_image_set_from_file(GTK_IMAGE(p_avatar_img),icon_file);
+    }
+
+    /* Basic info */
     gtk_label_set_text(GTK_LABEL(p_name_lbl),  s.name);
     char buf[64];
     snprintf(buf,sizeof buf,"Roll: %d",s.roll_no);
@@ -46,11 +55,13 @@ void refresh_profile(int student_id){
     gtk_label_set_text(GTK_LABEL(p_dob_lbl),   s.dob[0]?s.dob:"—");
     gtk_label_set_text(GTK_LABEL(p_enroll_lbl),s.enroll_date[0]?s.enroll_date:"—");
 
+    /* Clear dynamic sections */
     GtkWidget *child;
     while((child=gtk_widget_get_first_child(p_exam_box)))gtk_box_remove(GTK_BOX(p_exam_box),child);
     while((child=gtk_widget_get_first_child(p_test_box)))gtk_box_remove(GTK_BOX(p_test_box),child);
     while((child=gtk_widget_get_first_child(p_fee_box))) gtk_box_remove(GTK_BOX(p_fee_box), child);
 
+    /* ── Exams ── */
     FILE *fp=fopen(FILE_EXAMS,"rb");
     float total_pct=0; int exam_count=0;
     if(fp){
@@ -70,6 +81,7 @@ void refresh_profile(int student_id){
             g_object_unref(rc);
             gtk_widget_add_css_class(row,"exam-row");
 
+            /* Subject */
             GtkWidget *subj=gtk_label_new(e.subject);
             GtkCssProvider *sc2=gtk_css_provider_new();
             gtk_css_provider_load_from_string(sc2,".e-subj{font-weight:600;font-size:12px;color:#1e3a5f;}");
@@ -116,6 +128,7 @@ void refresh_profile(int student_id){
         gtk_label_set_text(GTK_LABEL(p_avg_exam_lbl),avg);
     }
 
+    /* ── Tests ── */
     fp=fopen(FILE_TESTS,"rb");
     float t_pct=0; int t_count=0,t_pass=0;
     if(fp){
@@ -180,6 +193,7 @@ void refresh_profile(int student_id){
         gtk_label_set_text(GTK_LABEL(p_avg_test_lbl),avg);
     }
 
+    /* ── Fees ── */
     fp=fopen(FILE_FEES,"rb");
     float f_total=0,f_paid=0,f_bal=0; int f_count=0;
     if(fp){
@@ -246,24 +260,26 @@ static void on_back_to_students(GtkButton *b,gpointer d){
 GtkWidget *build_profile_page(void){
     GtkWidget *outer=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
 
+    /* Header */
     GtkWidget *hdr=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
     gtk_widget_add_css_class(hdr,"page-header");
     gtk_box_append(GTK_BOX(outer),hdr);
 
-    GtkWidget *back=gtk_button_new_with_label("← Back");
+    GtkWidget *back=gtk_button_new_with_label("Back");
     gtk_widget_add_css_class(back,"btn-info");
     g_signal_connect(back,"clicked",G_CALLBACK(on_back_to_students),NULL);
     gtk_box_append(GTK_BOX(hdr),back);
 
     GtkWidget *tb=gtk_box_new(GTK_ORIENTATION_VERTICAL,2);
     gtk_widget_set_hexpand(tb,TRUE);gtk_box_append(GTK_BOX(hdr),tb);
-    GtkWidget *title=gtk_label_new("👤  Student Profile");
+    GtkWidget *title=gtk_label_new("Student Profile");
     gtk_widget_add_css_class(title,"page-title");gtk_widget_set_halign(title,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),title);
     GtkWidget *sub=gtk_label_new("Full information and academic progress");
     gtk_widget_add_css_class(sub,"page-subtitle");gtk_widget_set_halign(sub,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),sub);
 
+    /* Scrollable body */
     GtkWidget *scroll=gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
         GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
@@ -275,26 +291,25 @@ GtkWidget *build_profile_page(void){
     gtk_widget_set_margin_top(body,14);gtk_widget_set_margin_bottom(body,14);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),body);
 
-   
+    /* ── Top: avatar + basic info side by side ── */
     GtkWidget *top=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12);
     gtk_box_append(GTK_BOX(body),top);
 
-   
+    /* Avatar card */
     GtkWidget *av_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
     gtk_widget_add_css_class(av_card,"profile-card");
     gtk_widget_set_valign(av_card,GTK_ALIGN_START);
     gtk_widget_set_size_request(av_card,140,-1);
     gtk_box_append(GTK_BOX(top),av_card);
 
-    GtkWidget *av_ico=gtk_label_new("🎓");
-    GtkCssProvider *ac=gtk_css_provider_new();
-    gtk_css_provider_load_from_string(ac,".av-ico{font-size:48px;}");
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-        GTK_STYLE_PROVIDER(ac),GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(ac);
-    gtk_widget_add_css_class(av_ico,"av-ico");
-    gtk_widget_set_halign(av_ico,GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(av_card),av_ico);
+    GtkWidget *hbox=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6);
+    gtk_widget_set_halign(hbox,GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(av_card),hbox);
+
+    p_avatar_img=gtk_image_new_from_file("icons/girl.png");
+    gtk_image_set_pixel_size(GTK_IMAGE(p_avatar_img),64);
+    gtk_widget_set_opacity(p_avatar_img,0.75);
+    gtk_box_append(GTK_BOX(hbox),p_avatar_img);
 
     p_name_lbl=gtk_label_new("—");
     gtk_widget_add_css_class(p_name_lbl,"profile-name");
@@ -312,6 +327,7 @@ GtkWidget *build_profile_page(void){
     gtk_widget_set_halign(p_class_lbl,GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(av_card),p_class_lbl);
 
+    /* Info grid card */
     GtkWidget *info_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);
     gtk_widget_add_css_class(info_card,"profile-card");
     gtk_widget_set_hexpand(info_card,TRUE);
@@ -335,11 +351,12 @@ GtkWidget *build_profile_page(void){
     info_row(igrid,4,"DOB",      &p_dob_lbl);
     info_row(igrid,5,"ENROLLED", &p_enroll_lbl);
 
+    /* ── Exams section ── */
     GtkWidget *exam_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
     gtk_widget_add_css_class(exam_card,"profile-card");
     gtk_box_append(GTK_BOX(body),exam_card);
 
-    section_heading(exam_card,"📝  Exam Results");
+    section_heading(exam_card,"Exam Results");
 
     p_exam_box=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
     gtk_box_append(GTK_BOX(exam_card),p_exam_box);
@@ -354,11 +371,12 @@ GtkWidget *build_profile_page(void){
     gtk_widget_set_halign(p_avg_exam_lbl,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(exam_card),p_avg_exam_lbl);
 
-GtkWidget *test_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
+    /* ── Tests section ── */
+    GtkWidget *test_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
     gtk_widget_add_css_class(test_card,"profile-card");
     gtk_box_append(GTK_BOX(body),test_card);
 
-    section_heading(test_card,"📋  Test Results");
+    section_heading(test_card,"Test Results");
 
     p_test_box=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
     gtk_box_append(GTK_BOX(test_card),p_test_box);
@@ -368,12 +386,12 @@ GtkWidget *test_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
     gtk_widget_set_halign(p_avg_test_lbl,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(test_card),p_avg_test_lbl);
 
-
+    /* ── Fees section ── */
     GtkWidget *fee_card=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
     gtk_widget_add_css_class(fee_card,"profile-card");
     gtk_box_append(GTK_BOX(body),fee_card);
 
-    section_heading(fee_card,"💰  Fee Summary");
+    section_heading(fee_card,"Fee Summary");
 
     p_fee_box=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
     gtk_box_append(GTK_BOX(fee_card),p_fee_box);

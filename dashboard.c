@@ -2,6 +2,7 @@
 
 static GtkWidget *active_nav_btn=NULL;
 
+/* ── Forward declarations for live-refresh ── */
 static GtkWidget *lbl_total_students=NULL;
 static GtkWidget *lbl_total_boys    =NULL;
 static GtkWidget *lbl_total_girls   =NULL;
@@ -13,6 +14,7 @@ static int count_records(const char *path,size_t sz){
     return sz>0?(int)(b/sz):0;
 }
 
+/* Count students by gender (first letter match, case-insensitive) */
 static int count_gender(char letter){
     FILE *f=fopen(FILE_STUDENTS,"rb");if(!f)return 0;
     Student s; int c=0;
@@ -24,6 +26,8 @@ static int count_gender(char letter){
     fclose(f);
     return c;
 }
+
+/* Attendance percentage = Present / Total * 100 */
 static float calc_att_pct(void){
     FILE *f=fopen(FILE_ATTENDANCE,"rb");if(!f)return 0.0f;
     Attendance a; int total=0,present=0;
@@ -35,6 +39,7 @@ static float calc_att_pct(void){
     return total>0?(float)present/total*100.0f:0.0f;
 }
 
+/* ── Called every time the Home page is shown ── */
 void refresh_dashboard(void){
     if(!lbl_total_students) return;
     int ns=count_records(FILE_STUDENTS,sizeof(Student));
@@ -52,6 +57,7 @@ void refresh_dashboard(void){
     gtk_label_set_text(GTK_LABEL(lbl_att_pct),buf);
 }
 
+/* ── Nav helpers ── */
 static void set_active(GtkWidget *btn){
     if(active_nav_btn) gtk_widget_remove_css_class(active_nav_btn,"active");
     active_nav_btn=btn;
@@ -67,14 +73,28 @@ static void on_nav(GtkButton *b,gpointer d){
 }
 static void on_logout(GtkButton *b,gpointer d){(void)b;(void)d;switch_to_login();}
 
-static GtkWidget *nav_btn(const char *icon,const char *label,const char *page){
-    char txt[64]; snprintf(txt,sizeof txt,"%s  %s",icon,label);
-    GtkWidget *btn=gtk_button_new_with_label(txt);
+static GtkWidget *nav_btn(const char *icon_path,const char *label,const char *page){
+    GtkWidget *btn=gtk_button_new();
     gtk_widget_add_css_class(btn,"nav-btn");
     gtk_button_set_has_frame(GTK_BUTTON(btn),FALSE);
     gtk_widget_set_halign(btn,GTK_ALIGN_FILL);
-    GtkWidget *child=gtk_button_get_child(GTK_BUTTON(btn));
-    if(child) gtk_widget_set_halign(child,GTK_ALIGN_START);
+
+    GtkWidget *hbox=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
+    gtk_widget_set_halign(hbox,GTK_ALIGN_START);
+    gtk_widget_set_margin_start(hbox,4);
+
+    /* Icon — loads PNG from icons/ folder */
+    GtkWidget *img=gtk_image_new_from_file(icon_path);
+    gtk_image_set_pixel_size(GTK_IMAGE(img),24);
+    gtk_widget_set_opacity(img,0.75);
+    gtk_box_append(GTK_BOX(hbox),img);
+
+    GtkWidget *lbl=gtk_label_new(label);
+    gtk_widget_set_halign(lbl,GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(hbox),lbl);
+
+    gtk_button_set_child(GTK_BUTTON(btn),hbox);
+
     NavData *nd=g_new(NavData,1); nd->page=page; nd->btn=btn;
     g_signal_connect(btn,"clicked",G_CALLBACK(on_nav),nd);
     return btn;
@@ -86,13 +106,14 @@ GtkWidget *build_sidebar(void){
     gtk_widget_set_size_request(sb,175,-1);
     gtk_widget_set_vexpand(sb,TRUE);
 
+    /* Logo area */
     GtkWidget *la=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(la,"sidebar-logo-area");
     gtk_box_append(GTK_BOX(sb),la);
 
     GtkWidget *ico=gtk_label_new("🎓");
     GtkCssProvider *ic=gtk_css_provider_new();
-    gtk_css_provider_load_from_string(ic,".sb-ico{font-size:20px;}");
+    gtk_css_provider_load_from_string(ic,".sb-ico{font-size:24px;}");
     gtk_style_context_add_provider_for_display(gdk_display_get_default(),
         GTK_STYLE_PROVIDER(ic),GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(ic);
@@ -110,12 +131,12 @@ GtkWidget *build_sidebar(void){
     gtk_widget_set_halign(sec,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(sb),sec);
 
-    GtkWidget *b_home=nav_btn("🏠","Dashboard","home");
-    GtkWidget *b_stu =nav_btn("🎓","Students", "students");
-    GtkWidget *b_exam=nav_btn("📝","Exams",    "exams");
-    GtkWidget *b_test=nav_btn("📋","Tests",    "tests");
-    GtkWidget *b_fee =nav_btn("💰","Fees",     "fees");
-    GtkWidget *b_att =nav_btn("🗓","Attendance","attendance");
+    GtkWidget *b_home=nav_btn("icons/home.png","Dashboard","home");
+    GtkWidget *b_stu =nav_btn("icons/students.png","Students","students");
+    GtkWidget *b_exam=nav_btn("icons/exams.png","Exams","exams");
+    GtkWidget *b_test=nav_btn("icons/tests.png","Tests","tests");
+    GtkWidget *b_fee =nav_btn("icons/fees.png","Fees","fees");
+    GtkWidget *b_att =nav_btn("icons/attendance.png","Attendance","attendance");
 
     gtk_box_append(GTK_BOX(sb),b_home);
     gtk_box_append(GTK_BOX(sb),b_stu);
@@ -132,17 +153,30 @@ GtkWidget *build_sidebar(void){
 
     gtk_box_append(GTK_BOX(sb),gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
-    GtkWidget *lo=gtk_button_new_with_label("🚪  Logout");
+    GtkWidget *lo=gtk_button_new();
+    {
+        GtkWidget *lhbox=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
+        gtk_widget_set_halign(lhbox,GTK_ALIGN_START);
+        gtk_widget_set_margin_start(lhbox,4);
+        GtkWidget *lico=gtk_image_new_from_file("icons/logout.png");
+        gtk_image_set_pixel_size(GTK_IMAGE(lico),18);
+        gtk_widget_set_opacity(lico,0.6);
+        gtk_box_append(GTK_BOX(lhbox),lico);
+        GtkWidget *llbl=gtk_label_new("Logout");
+        gtk_widget_set_halign(llbl,GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(lhbox),llbl);
+        gtk_button_set_child(GTK_BUTTON(lo),lhbox);
+    }
     gtk_widget_add_css_class(lo,"btn-logout");
-    GtkWidget *lochild=gtk_button_get_child(GTK_BUTTON(lo));
-    if(lochild) gtk_widget_set_halign(lochild,GTK_ALIGN_START);
+
     g_signal_connect(lo,"clicked",G_CALLBACK(on_logout),NULL);
     gtk_box_append(GTK_BOX(sb),lo);
 
     return sb;
 }
 
-static GtkWidget *stat_card(const char *emoji,const char *label,
+/* ── Stat card — returns card; stores number label in *out_lbl ── */
+static GtkWidget *stat_card(const char *icon_path,const char *label,
                              const char *init_val,const char *color,
                              GtkWidget **out_lbl){
     GtkWidget *card=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
@@ -163,14 +197,11 @@ static GtkWidget *stat_card(const char *emoji,const char *label,
     GtkWidget *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
     gtk_box_append(GTK_BOX(card),row);
 
-    GtkWidget *e=gtk_label_new(emoji);
-    GtkCssProvider *ec=gtk_css_provider_new();
-    gtk_css_provider_load_from_string(ec,".sc-e{font-size:24px;}");
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-        GTK_STYLE_PROVIDER(ec),GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(ec);
-    gtk_widget_add_css_class(e,"sc-e");
-    gtk_box_append(GTK_BOX(row),e);
+/* Icon — loads PNG from icons/ folder */
+    GtkWidget *img=gtk_image_new_from_file(icon_path);
+    gtk_image_set_pixel_size(GTK_IMAGE(img),32);
+    gtk_widget_set_opacity(img,0.75);
+    gtk_box_append(GTK_BOX(row),img);
 
     GtkWidget *vb=gtk_box_new(GTK_ORIENTATION_VERTICAL,1);
     gtk_box_append(GTK_BOX(row),vb);
@@ -199,6 +230,7 @@ GtkWidget *build_home_page(void){
     gtk_widget_set_margin_top(vb,16);gtk_widget_set_margin_bottom(vb,16);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),vb);
 
+    /* banner */
     GtkWidget *banner=gtk_box_new(GTK_ORIENTATION_VERTICAL,3);
     gtk_widget_add_css_class(banner,"card");
     GtkCssProvider *bc=gtk_css_provider_new();
@@ -241,22 +273,24 @@ GtkWidget *build_home_page(void){
     gtk_widget_set_halign(ov,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vb),ov);
 
+    /* ── 4 stat cards in a 2x2 grid ── */
     GtkWidget *grid=gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid),8);
     gtk_grid_set_row_spacing(GTK_GRID(grid),8);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid),TRUE);
 
     gtk_grid_attach(GTK_GRID(grid),
-        stat_card("🎓","Total Students","0","#2563eb",&lbl_total_students),0,0,1,1);
+        stat_card("icons/students.png","Total Students","0","#2563eb",&lbl_total_students),0,0,1,1);
     gtk_grid_attach(GTK_GRID(grid),
-        stat_card("👦","Total Boys",    "0","#16a34a",&lbl_total_boys),    1,0,1,1);
+        stat_card("icons/boy.png","Total Boys",    "0","#16a34a",&lbl_total_boys),    1,0,1,1);
     gtk_grid_attach(GTK_GRID(grid),
-        stat_card("👧","Total Girls",   "0","#d97706",&lbl_total_girls),   0,1,1,1);
+        stat_card("icons/girl.png","Total Girls",   "0","#d97706",&lbl_total_girls),   0,1,1,1);
     gtk_grid_attach(GTK_GRID(grid),
-        stat_card("📅","Attendance %",  "0.0%","#0891b2",&lbl_att_pct),   1,1,1,1);
+        stat_card("icons/attendance.png","Attendance %",  "0.0%","#0891b2",&lbl_att_pct),   1,1,1,1);
 
     gtk_box_append(GTK_BOX(vb),grid);
 
+    /* Populate on first build */
     refresh_dashboard();
 
     return scroll;

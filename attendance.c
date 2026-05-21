@@ -1,6 +1,7 @@
 #include <time.h>
 #include "sms.h"
 
+/* ── Column indices ── */
 enum{
     COL_A_ID=0, COL_A_ROLL, COL_A_NAME, COL_A_CLASS,
     COL_A_DATE, COL_A_SUBJECT, COL_A_STATUS, COL_A_REMARKS,
@@ -8,11 +9,14 @@ enum{
 };
 
 static GtkListStore *a_store;
-static GtkWidget    *a_filter_entry;   
-static GtkWidget    *a_status_filter;  
-static GtkWidget    *a_class_filter;   
-static GtkWidget    *a_section_filter; 
+static GtkWidget    *a_filter_entry;   /* date filter */
+static GtkWidget    *a_status_filter;  /* dropdown    */
+static GtkWidget    *a_class_filter;   /* class filter */
+static GtkWidget    *a_section_filter; /* section filter */
 
+/* ────────────────────────────────────────
+   RELOAD
+──────────────────────────────────────── */
 static void reload_attendance(void){
     gtk_list_store_clear(a_store);
     FILE *fp=fopen(FILE_ATTENDANCE,"rb"); if(!fp)return;
@@ -56,6 +60,9 @@ static void on_status_changed(GtkDropDown *dd,GParamSpec *p,gpointer d){
     (void)dd;(void)p;(void)d; reload_attendance();}
 static void on_refresh_a(GtkButton *b,gpointer d){(void)b;(void)d;reload_attendance();}
 
+/* ────────────────────────────────────────
+   GET SELECTED ATT_ID
+──────────────────────────────────────── */
 static int get_sel_aid(GtkTreeView *tv){
     GtkTreeSelection *sel=gtk_tree_view_get_selection(tv);
     GtkTreeModel *m; GtkTreeIter it;
@@ -63,6 +70,9 @@ static int get_sel_aid(GtkTreeView *tv){
     int id; gtk_tree_model_get(m,&it,COL_A_ID,&id,-1); return id;
 }
 
+/* ────────────────────────────────────────
+   FORM ROW HELPER
+──────────────────────────────────────── */
 static void frow_a(GtkWidget *g,int row,const char *l,GtkWidget **o){
     GtkWidget *lw=gtk_label_new(l);
     gtk_widget_add_css_class(lw,"field-label");
@@ -74,8 +84,11 @@ static void frow_a(GtkWidget *g,int row,const char *l,GtkWidget **o){
     if(o)*o=e;
 }
 
+/* ────────────────────────────────────────
+   ADD ATTENDANCE DIALOG
+──────────────────────────────────────── */
 typedef struct{
-    GtkWidget *e_roll,*e_date,*e_subject,*e_remarks;
+    GtkWidget *e_roll,*e_class,*e_section,*e_date,*e_subject,*e_remarks;
     GtkWidget *dd_status;
     GtkWidget *err,*dlg;
 }AddAttCtx;
@@ -83,18 +96,21 @@ typedef struct{
 static void cb_save_att(GtkButton *b,gpointer ud){
     (void)b; AddAttCtx *c=ud;
     const char *rs   =gtk_editable_get_text(GTK_EDITABLE(c->e_roll));
+    const char *cls  =gtk_editable_get_text(GTK_EDITABLE(c->e_class));
+    const char *sec  =gtk_editable_get_text(GTK_EDITABLE(c->e_section));
     const char *date =gtk_editable_get_text(GTK_EDITABLE(c->e_date));
     const char *subj =gtk_editable_get_text(GTK_EDITABLE(c->e_subject));
     const char *rem  =gtk_editable_get_text(GTK_EDITABLE(c->e_remarks));
     guint stat_idx   =gtk_drop_down_get_selected(GTK_DROP_DOWN(c->dd_status));
 
-    if(!*rs||!*date||!*subj){
-        gtk_label_set_text(GTK_LABEL(c->err),"⚠ Roll No, Date and Subject are required.");
+    if(!*rs||!*cls||!*sec||!*date||!*subj){
+        gtk_label_set_text(GTK_LABEL(c->err),"⚠ Roll No, Class, Section, Date and Subject are required.");
         return;
     }
-    Student s=findStudentByRoll(atoi(rs));
+    Student s=findStudentByRollClassSec(atoi(rs),cls,sec);
     if(s.student_id==0){
-        gtk_label_set_text(GTK_LABEL(c->err),"⚠ Student not found.");return;}
+        gtk_label_set_text(GTK_LABEL(c->err),
+            "⚠ No student with this Roll No in that Class & Section.");return;}
 
     const char *statuses[]={"Present","Absent","Late"};
     Attendance a; memset(&a,0,sizeof a);
@@ -137,23 +153,25 @@ static void on_add_att(GtkButton *btn,gpointer tv){
 
     AddAttCtx *ctx=g_new0(AddAttCtx,1);
     frow_a(grid,0,"Student Roll No *",&ctx->e_roll);
-    frow_a(grid,1,"Date (DD-MM-YYYY) *",&ctx->e_date);
-    frow_a(grid,2,"Subject *",&ctx->e_subject);
+    frow_a(grid,1,"Class *",&ctx->e_class);
+    frow_a(grid,2,"Section *",&ctx->e_section);
+    frow_a(grid,3,"Date (DD-MM-YYYY) *",&ctx->e_date);
+    frow_a(grid,4,"Subject *",&ctx->e_subject);
 
     /* Status dropdown */
     GtkWidget *stat_lbl=gtk_label_new("Status *");
     gtk_widget_add_css_class(stat_lbl,"field-label");
     gtk_widget_set_halign(stat_lbl,GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid),stat_lbl,0,3,1,1);
+    gtk_grid_attach(GTK_GRID(grid),stat_lbl,0,5,1,1);
 
     const char *opts[]={"Present","Absent","Late",NULL};
     GtkStringList *sl=gtk_string_list_new(opts);
     ctx->dd_status=gtk_drop_down_new(G_LIST_MODEL(sl),NULL);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(ctx->dd_status),0);
     gtk_widget_set_hexpand(ctx->dd_status,TRUE);
-    gtk_grid_attach(GTK_GRID(grid),ctx->dd_status,1,3,1,1);
+    gtk_grid_attach(GTK_GRID(grid),ctx->dd_status,1,5,1,1);
 
-    frow_a(grid,4,"Remarks",&ctx->e_remarks);
+    frow_a(grid,6,"Remarks",&ctx->e_remarks);
     ctx->dlg=dlg;
 
     ctx->err=gtk_label_new("");
@@ -175,6 +193,11 @@ static void on_add_att(GtkButton *btn,gpointer tv){
 
     gtk_window_present(GTK_WINDOW(dlg));
 }
+
+/* ────────────────────────────────────────
+   BULK ATTENDANCE DIALOG
+   Mark all students in a class for a date
+──────────────────────────────────────── */
 typedef struct{
     GtkWidget *e_class,*e_section,*e_date,*e_subject;
     GtkWidget *dd_status;
@@ -196,6 +219,7 @@ static void cb_save_bulk(GtkButton *b,gpointer ud){
     const char *statuses[]={"Present","Absent","Late"};
     const char *status=statuses[stat_idx<3?stat_idx:0];
 
+    /* Find all students in that class/section */
     FILE *sfp=fopen(FILE_STUDENTS,"rb");
     if(!sfp){gtk_label_set_text(GTK_LABEL(c->err),"⚠ Cannot open students file.");return;}
     FILE *afp=fopen(FILE_ATTENDANCE,"ab");
@@ -287,6 +311,10 @@ static void on_bulk_att(GtkButton *btn,gpointer tv){
     g_signal_connect(save,"clicked",G_CALLBACK(cb_save_bulk),ctx);
     gtk_window_present(GTK_WINDOW(dlg));
 }
+
+/* ────────────────────────────────────────
+   DELETE
+──────────────────────────────────────── */
 static void on_delete_att(GtkButton *btn,gpointer tv_ptr){
     (void)btn;
     int aid=get_sel_aid(GTK_TREE_VIEW(tv_ptr));
@@ -307,6 +335,9 @@ static void on_delete_att(GtkButton *btn,gpointer tv_ptr){
     reload_attendance(); refresh_dashboard();
 }
 
+/* ────────────────────────────────────────
+   SUMMARY DIALOG — attendance % per student
+──────────────────────────────────────── */
 static void on_show_summary(GtkButton *btn,gpointer d){
     (void)btn;(void)d;
     GtkWidget *dlg=gtk_window_new();
@@ -325,12 +356,14 @@ static void on_show_summary(GtkButton *btn,gpointer d){
     gtk_widget_set_halign(h,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vb),h);
 
+    /* Build summary store */
     GtkListStore *ss=gtk_list_store_new(5,
         G_TYPE_INT,G_TYPE_STRING,G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING);
     enum{SC_ROLL,SC_NAME,SC_PRESENT,SC_TOTAL,SC_PCT};
 
     FILE *fp=fopen(FILE_ATTENDANCE,"rb");
     if(fp){
+        /* collect unique students */
         int sids[500]; int nsids=0;
         Attendance recs[5000]; int nrecs=0;
         Attendance a;
@@ -392,6 +425,10 @@ static void on_show_summary(GtkButton *btn,gpointer d){
 
     gtk_window_present(GTK_WINDOW(dlg));
 }
+
+/* ────────────────────────────────────────
+   STATUS CELL RENDERER — colour by status
+──────────────────────────────────────── */
 static void status_cell_func(GtkTreeViewColumn *col,GtkCellRenderer *r,
                               GtkTreeModel *model,GtkTreeIter *iter,gpointer d){
     (void)col;(void)d;
@@ -405,6 +442,10 @@ static void status_cell_func(GtkTreeViewColumn *col,GtkCellRenderer *r,
     g_object_set(r,"text",status,"foreground",fg,"foreground-set",TRUE,NULL);
     g_free(status);
 }
+
+/* ────────────────────────────────────────
+   CLEAR FILTERS — resets to today
+──────────────────────────────────────── */
 static void on_clear_filters(GtkButton *b,gpointer d){
     (void)b;(void)d;
     time_t t=time(NULL);
@@ -417,9 +458,13 @@ static void on_clear_filters(GtkButton *b,gpointer d){
     gtk_drop_down_set_selected(GTK_DROP_DOWN(a_status_filter),0);
 }
 
+/* ────────────────────────────────────────
+   BUILD PAGE
+──────────────────────────────────────── */
 GtkWidget *build_attendance_page(void){
     GtkWidget *vbox=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
 
+    /* ── Header ── */
     GtkWidget *hdr=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(hdr,"page-header");
     gtk_box_append(GTK_BOX(vbox),hdr);
@@ -428,7 +473,7 @@ GtkWidget *build_attendance_page(void){
     gtk_widget_set_hexpand(tb,TRUE);
     gtk_box_append(GTK_BOX(hdr),tb);
 
-    GtkWidget *title=gtk_label_new("🗓  Attendance");
+    GtkWidget *title=gtk_label_new("Attendance");
     gtk_widget_add_css_class(title,"page-title");
     gtk_widget_set_halign(title,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),title);
@@ -438,19 +483,20 @@ GtkWidget *build_attendance_page(void){
     gtk_widget_set_halign(sub,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),sub);
 
-    GtkWidget *bulk_btn=gtk_button_new_with_label("📋 Bulk");
+    GtkWidget *bulk_btn=gtk_button_new_with_label("Bulk");
     gtk_widget_add_css_class(bulk_btn,"btn-warning");
     gtk_box_append(GTK_BOX(hdr),bulk_btn);
 
-    GtkWidget *add_btn=gtk_button_new_with_label("＋ Mark");
+    GtkWidget *add_btn=gtk_button_new_with_label("Mark");
     gtk_widget_add_css_class(add_btn,"btn-primary");
     gtk_box_append(GTK_BOX(hdr),add_btn);
 
-
+    /* ── Filter toolbar — row 1: Date, Class, Section, Status ── */
     GtkWidget *toolbar=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(toolbar,"toolbar");
     gtk_box_append(GTK_BOX(vbox),toolbar);
 
+    /* Get today's date in DD-MM-YYYY format */
     char today_str[12]={0};
     {
         time_t t=time(NULL);
@@ -503,13 +549,14 @@ GtkWidget *build_attendance_page(void){
     gtk_widget_set_hexpand(sp,TRUE);
     gtk_box_append(GTK_BOX(toolbar),sp);
 
-    GtkWidget *sum_btn=gtk_button_new_with_label("📊 Summary");
+    GtkWidget *sum_btn=gtk_button_new_with_label("Summary");
     gtk_widget_add_css_class(sum_btn,"btn-info");
     gtk_box_append(GTK_BOX(toolbar),sum_btn);
 
     GtkWidget *ref=gtk_button_new_with_label("↺");
     gtk_box_append(GTK_BOX(toolbar),ref);
 
+    /* ── List store ── */
     a_store=gtk_list_store_new(N_A_COLS,
         G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,G_TYPE_STRING,
         G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING);
@@ -518,6 +565,7 @@ GtkWidget *build_attendance_page(void){
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(tv),TRUE);
     gtk_tree_view_set_grid_lines(GTK_TREE_VIEW(tv),GTK_TREE_VIEW_GRID_LINES_HORIZONTAL);
 
+    /* Regular columns */
     struct{const char *t;int c;}cols[]={
         {"Roll",COL_A_ROLL},{"Student",COL_A_NAME},{"Class",COL_A_CLASS},
         {"Date",COL_A_DATE},{"Subject",COL_A_SUBJECT},{"Remarks",COL_A_REMARKS}};
@@ -531,6 +579,7 @@ GtkWidget *build_attendance_page(void){
         gtk_tree_view_append_column(GTK_TREE_VIEW(tv),c);
     }
 
+    /* Status column with colour */
     GtkCellRenderer *sr=gtk_cell_renderer_text_new();
     g_object_set(sr,"xpad",6,"ypad",4,"font-weight",700,NULL);
     GtkTreeViewColumn *sc=gtk_tree_view_column_new();
@@ -538,6 +587,7 @@ GtkWidget *build_attendance_page(void){
     gtk_tree_view_column_pack_start(sc,sr,TRUE);
     gtk_tree_view_column_set_cell_data_func(sc,sr,status_cell_func,NULL,NULL);
     gtk_tree_view_column_set_resizable(sc,TRUE);
+    /* insert Status before Remarks — reorder: Roll,Student,Class,Date,Subject,Status,Remarks */
     gtk_tree_view_insert_column(GTK_TREE_VIEW(tv),sc,5);
 
     GtkWidget *scroll=gtk_scrolled_window_new();
@@ -549,16 +599,18 @@ GtkWidget *build_attendance_page(void){
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),tv);
     gtk_box_append(GTK_BOX(vbox),scroll);
 
+    /* ── Bottom bar ── */
     GtkWidget *bot=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(bot,"toolbar");
     gtk_box_append(GTK_BOX(vbox),bot);
     GtkWidget *sp2=gtk_label_new("");
     gtk_widget_set_hexpand(sp2,TRUE);
     gtk_box_append(GTK_BOX(bot),sp2);
-    GtkWidget *del_btn=gtk_button_new_with_label("🗑 Delete");
+    GtkWidget *del_btn=gtk_button_new_with_label("Delete");
     gtk_widget_add_css_class(del_btn,"btn-danger");
     gtk_box_append(GTK_BOX(bot),del_btn);
 
+    /* ── Connect signals ── */
     g_signal_connect(add_btn,  "clicked",  G_CALLBACK(on_add_att),      tv);
     g_signal_connect(bulk_btn, "clicked",  G_CALLBACK(on_bulk_att),     tv);
     g_signal_connect(del_btn,  "clicked",  G_CALLBACK(on_delete_att),   tv);

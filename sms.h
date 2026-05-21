@@ -36,12 +36,12 @@ typedef struct{
     int user_id,is_active;
     char username[30],password[30],role[20];
 }User;
-
+/* status: "Present" | "Absent" | "Late" */
 typedef struct{
     int  att_id,student_id;
-    char date[12];      
-        char subject[50];
-    char status[10];    
+    char date[12];      /* DD-MM-YYYY */
+    char subject[50];
+    char status[10];    /* Present / Absent / Late */
     char remarks[80];
 }Attendance;
 
@@ -56,6 +56,7 @@ int     getNextAttId(void);
 char   *gradeFromPercent(float p);
 Student findStudentById(int id);
 Student findStudentByRoll(int roll);
+Student findStudentByRollClassSec(int roll,const char *cls,const char *sec);
 
 GtkWidget *build_login_page(void);
 GtkWidget *build_sidebar(void);

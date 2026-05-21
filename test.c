@@ -1,23 +1,59 @@
 #include "sms.h"
-enum{COL_T_ID=0,COL_T_ROLL,COL_T_SNAME,COL_T_TNAME,COL_T_SUBJECT,
-     COL_T_DATE,COL_T_TOTAL,COL_T_OBTAINED,COL_T_PCT,COL_T_STATUS,N_T_COLS};
+#include <time.h>
+
+enum{COL_T_ID=0,COL_T_ROLL,COL_T_SNAME,COL_T_CLASS,COL_T_SEC,
+     COL_T_TNAME,COL_T_SUBJECT,COL_T_DATE,COL_T_TOTAL,
+     COL_T_OBTAINED,COL_T_PCT,COL_T_STATUS,N_T_COLS};
+
 static GtkListStore *t_store;
+static GtkWidget   *t_date_filter;
+static GtkWidget   *t_class_filter;
+static GtkWidget   *t_sec_filter;
+
 static void reload_tests(void){
     gtk_list_store_clear(t_store);
     FILE *fp=fopen(FILE_TESTS,"rb");if(!fp)return;
+
+    const char *date_q =gtk_editable_get_text(GTK_EDITABLE(t_date_filter));
+    const char *class_q=gtk_editable_get_text(GTK_EDITABLE(t_class_filter));
+    const char *sec_q  =gtk_editable_get_text(GTK_EDITABLE(t_sec_filter));
+
     StudentTest t;
     while(fread(&t,sizeof t,1,fp)){
         Student s=findStudentById(t.student_id);
+
+        /* Apply filters */
+        if(*date_q  && strstr(t.test_date,   date_q )==NULL) continue;
+        if(*class_q && strcasecmp(s.class_name,class_q)!=0)  continue;
+        if(*sec_q   && strcasecmp(s.section,   sec_q  )!=0)  continue;
+
         char ps[16];snprintf(ps,sizeof ps,"%.1f%%",t.percentage);
         GtkTreeIter it;gtk_list_store_append(t_store,&it);
         gtk_list_store_set(t_store,&it,
-            COL_T_ID,t.test_id,COL_T_ROLL,s.roll_no,COL_T_SNAME,s.name,
-            COL_T_TNAME,t.test_name,COL_T_SUBJECT,t.subject,COL_T_DATE,t.test_date,
-            COL_T_TOTAL,t.total_marks,COL_T_OBTAINED,t.obtained,
-            COL_T_PCT,ps,COL_T_STATUS,t.status,-1);
+            COL_T_ID,t.test_id,
+            COL_T_ROLL,s.roll_no,
+            COL_T_SNAME,s.name,
+            COL_T_CLASS,s.class_name,
+            COL_T_SEC,s.section,
+            COL_T_TNAME,t.test_name,
+            COL_T_SUBJECT,t.subject,
+            COL_T_DATE,t.test_date,
+            COL_T_TOTAL,t.total_marks,
+            COL_T_OBTAINED,t.obtained,
+            COL_T_PCT,ps,
+            COL_T_STATUS,t.status,-1);
     }
     fclose(fp);
 }
+
+static void on_t_filter(GtkEditable *ed,gpointer d){(void)ed;(void)d;reload_tests();}
+static void on_t_clear(GtkButton *b,gpointer d){
+    (void)b;(void)d;
+    gtk_editable_set_text(GTK_EDITABLE(t_date_filter),"");
+    gtk_editable_set_text(GTK_EDITABLE(t_class_filter),"");
+    gtk_editable_set_text(GTK_EDITABLE(t_sec_filter),"");
+}
+
 static int get_sel_tid(GtkTreeView *tv){
     GtkTreeSelection *sel=gtk_tree_view_get_selection(tv);
     GtkTreeModel *m;GtkTreeIter it;
@@ -31,19 +67,23 @@ static void frow_t(GtkWidget *g,int row,const char *l,GtkWidget **o){
     GtkWidget *e=gtk_entry_new();gtk_widget_set_hexpand(e,TRUE);
     gtk_grid_attach(GTK_GRID(g),e,1,row,1,1);if(o)*o=e;
 }
-typedef struct{GtkWidget*e[6];GtkWidget*err,*dlg;}AddTestCtx;
+
+typedef struct{GtkWidget*e[8];GtkWidget*err,*dlg;}AddTestCtx;
 static void cb_save_test(GtkButton *b,gpointer ud){
     (void)b;AddTestCtx *c=ud;
     const char *rs=gtk_editable_get_text(GTK_EDITABLE(c->e[0]));
-    const char *tn=gtk_editable_get_text(GTK_EDITABLE(c->e[1]));
-    const char *su=gtk_editable_get_text(GTK_EDITABLE(c->e[2]));
-    const char *da=gtk_editable_get_text(GTK_EDITABLE(c->e[3]));
-    const char *to=gtk_editable_get_text(GTK_EDITABLE(c->e[4]));
-    const char *ob=gtk_editable_get_text(GTK_EDITABLE(c->e[5]));
-    if(!*rs||!*tn||!*su||!*da||!*to||!*ob){
+    const char *cl=gtk_editable_get_text(GTK_EDITABLE(c->e[1]));
+    const char *sc=gtk_editable_get_text(GTK_EDITABLE(c->e[2]));
+    const char *tn=gtk_editable_get_text(GTK_EDITABLE(c->e[3]));
+    const char *su=gtk_editable_get_text(GTK_EDITABLE(c->e[4]));
+    const char *da=gtk_editable_get_text(GTK_EDITABLE(c->e[5]));
+    const char *to=gtk_editable_get_text(GTK_EDITABLE(c->e[6]));
+    const char *ob=gtk_editable_get_text(GTK_EDITABLE(c->e[7]));
+    if(!*rs||!*cl||!*sc||!*tn||!*su||!*da||!*to||!*ob){
         gtk_label_set_text(GTK_LABEL(c->err),"⚠ Fill all required fields.");return;}
-    Student s=findStudentByRoll(atoi(rs));
-    if(s.student_id==0){gtk_label_set_text(GTK_LABEL(c->err),"⚠ Student not found.");return;}
+    Student s=findStudentByRollClassSec(atoi(rs),cl,sc);
+    if(s.student_id==0){gtk_label_set_text(GTK_LABEL(c->err),
+        "⚠ No student with this Roll No in that Class & Section.");return;}
     StudentTest t;memset(&t,0,sizeof t);
     t.test_id=getNextTestId();t.student_id=s.student_id;
     t.total_marks=atoi(to);t.obtained=atoi(ob);
@@ -53,6 +93,7 @@ static void cb_save_test(GtkButton *b,gpointer ud){
     FILE *fp=fopen(FILE_TESTS,"ab");if(fp){fwrite(&t,sizeof t,1,fp);fclose(fp);}
     reload_tests();gtk_window_destroy(GTK_WINDOW(c->dlg));g_free(c);
 }
+
 static void on_add_test(GtkButton *btn,gpointer tv){
     (void)btn;(void)tv;
     GtkWidget *dlg=gtk_window_new();
@@ -72,11 +113,13 @@ static void on_add_test(GtkButton *btn,gpointer tv){
     gtk_box_append(GTK_BOX(vb),grid);
     AddTestCtx *ctx=g_new0(AddTestCtx,1);
     frow_t(grid,0,"Student Roll No *",&ctx->e[0]);
-    frow_t(grid,1,"Test Name *",&ctx->e[1]);
-    frow_t(grid,2,"Subject *",&ctx->e[2]);
-    frow_t(grid,3,"Test Date *",&ctx->e[3]);
-    frow_t(grid,4,"Total Marks *",&ctx->e[4]);
-    frow_t(grid,5,"Marks Obtained *",&ctx->e[5]);
+    frow_t(grid,1,"Class *",&ctx->e[1]);
+    frow_t(grid,2,"Section *",&ctx->e[2]);
+    frow_t(grid,3,"Test Name *",&ctx->e[3]);
+    frow_t(grid,4,"Subject *",&ctx->e[4]);
+    frow_t(grid,5,"Test Date (DD-MM-YYYY) *",&ctx->e[5]);
+    frow_t(grid,6,"Total Marks *",&ctx->e[6]);
+    frow_t(grid,7,"Marks Obtained *",&ctx->e[7]);
     ctx->dlg=dlg;ctx->err=gtk_label_new("");
     gtk_widget_add_css_class(ctx->err,"login-err");gtk_box_append(GTK_BOX(vb),ctx->err);
     GtkWidget *br=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
@@ -88,6 +131,7 @@ static void on_add_test(GtkButton *btn,gpointer tv){
     g_signal_connect(save,"clicked",G_CALLBACK(cb_save_test),ctx);
     gtk_window_present(GTK_WINDOW(dlg));
 }
+
 static void on_delete_test(GtkButton *btn,gpointer tv_ptr){
     (void)btn;int tid=get_sel_tid(GTK_TREE_VIEW(tv_ptr));
     if(tid<0){show_message_dialog(GTK_WINDOW(main_window),"","Select a test first.",GTK_MESSAGE_WARNING);return;}
@@ -98,51 +142,102 @@ static void on_delete_test(GtkButton *btn,gpointer tv_ptr){
     reload_tests();
 }
 static void on_refresh_t(GtkButton *b,gpointer d){(void)b;(void)d;reload_tests();}
+
 GtkWidget *build_tests_page(void){
     GtkWidget *vbox=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+
+    /* Header */
     GtkWidget *hdr=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
     gtk_widget_add_css_class(hdr,"page-header");gtk_box_append(GTK_BOX(vbox),hdr);
     GtkWidget *tb=gtk_box_new(GTK_ORIENTATION_VERTICAL,2);
     gtk_widget_set_hexpand(tb,TRUE);gtk_box_append(GTK_BOX(hdr),tb);
-    GtkWidget *title=gtk_label_new("📋  Tests");
+    GtkWidget *title=gtk_label_new("Tests");
     gtk_widget_add_css_class(title,"page-title");gtk_widget_set_halign(title,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),title);
-    GtkWidget *sub=gtk_label_new("Manage class test records");
+    GtkWidget *sub=gtk_label_new("Filter by date, class or section");
     gtk_widget_add_css_class(sub,"page-subtitle");gtk_widget_set_halign(sub,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),sub);
-    GtkWidget *add_btn=gtk_button_new_with_label("＋ Add Test");
+    GtkWidget *add_btn=gtk_button_new_with_label("Add Test");
     gtk_widget_add_css_class(add_btn,"btn-primary");gtk_box_append(GTK_BOX(hdr),add_btn);
+
+    /* Filter toolbar */
     GtkWidget *toolbar=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(toolbar,"toolbar");gtk_box_append(GTK_BOX(vbox),toolbar);
-    GtkWidget *ref=gtk_button_new_with_label("↺ Refresh");
-    g_signal_connect(ref,"clicked",G_CALLBACK(on_refresh_t),NULL);gtk_box_append(GTK_BOX(toolbar),ref);
-    t_store=gtk_list_store_new(N_T_COLS,G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,
-        G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING,G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,G_TYPE_STRING);
+
+    GtkWidget *dl=gtk_label_new("Date:");
+    gtk_widget_add_css_class(dl,"field-label");gtk_box_append(GTK_BOX(toolbar),dl);
+    t_date_filter=gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(t_date_filter),"DD-MM-YYYY");
+    gtk_widget_set_size_request(t_date_filter,110,-1);
+    gtk_box_append(GTK_BOX(toolbar),t_date_filter);
+
+    GtkWidget *cl=gtk_label_new("Class:");
+    gtk_widget_add_css_class(cl,"field-label");gtk_box_append(GTK_BOX(toolbar),cl);
+    t_class_filter=gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(t_class_filter),"e.g. BSCS");
+    gtk_widget_set_size_request(t_class_filter,90,-1);
+    gtk_box_append(GTK_BOX(toolbar),t_class_filter);
+
+    GtkWidget *sl=gtk_label_new("Section:");
+    gtk_widget_add_css_class(sl,"field-label");gtk_box_append(GTK_BOX(toolbar),sl);
+    t_sec_filter=gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(t_sec_filter),"e.g. A");
+    gtk_widget_set_size_request(t_sec_filter,55,-1);
+    gtk_box_append(GTK_BOX(toolbar),t_sec_filter);
+
+    GtkWidget *clr=gtk_button_new_with_label("✕ Clear");
+    gtk_box_append(GTK_BOX(toolbar),clr);
+
+    GtkWidget *sp=gtk_label_new("");gtk_widget_set_hexpand(sp,TRUE);gtk_box_append(GTK_BOX(toolbar),sp);
+    GtkWidget *ref=gtk_button_new_with_label("Refresh");
+    gtk_box_append(GTK_BOX(toolbar),ref);
+
+    /* Table */
+    t_store=gtk_list_store_new(N_T_COLS,
+        G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING,
+        G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING,
+        G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,G_TYPE_STRING);
     GtkWidget *tv=gtk_tree_view_new_with_model(GTK_TREE_MODEL(t_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(tv),TRUE);
     gtk_tree_view_set_grid_lines(GTK_TREE_VIEW(tv),GTK_TREE_VIEW_GRID_LINES_HORIZONTAL);
+
     struct{const char*t;int c;}cols[]={
         {"ID",COL_T_ID},{"Roll",COL_T_ROLL},{"Student",COL_T_SNAME},
+        {"Class",COL_T_CLASS},{"Section",COL_T_SEC},
         {"Test",COL_T_TNAME},{"Subject",COL_T_SUBJECT},{"Date",COL_T_DATE},
         {"Total",COL_T_TOTAL},{"Obtained",COL_T_OBTAINED},{"%",COL_T_PCT},{"Status",COL_T_STATUS}};
-    for(int i=0;i<10;i++){
+    for(int i=0;i<12;i++){
         GtkCellRenderer *r=gtk_cell_renderer_text_new();
         g_object_set(r,"xpad",6,"ypad",4,"foreground","#1e293b","foreground-set",TRUE,NULL);
         GtkTreeViewColumn *c=gtk_tree_view_column_new_with_attributes(cols[i].t,r,"text",cols[i].c,NULL);
-        gtk_tree_view_column_set_resizable(c,TRUE);gtk_tree_view_append_column(GTK_TREE_VIEW(tv),c);
+        gtk_tree_view_column_set_resizable(c,TRUE);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(tv),c);
     }
+
     GtkWidget *scroll=gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_AUTOMATIC,GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scroll,TRUE);
     gtk_widget_set_margin_start(scroll,12);gtk_widget_set_margin_end(scroll,12);
     gtk_widget_set_margin_top(scroll,8);gtk_widget_set_margin_bottom(scroll,8);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),tv);gtk_box_append(GTK_BOX(vbox),scroll);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),tv);
+    gtk_box_append(GTK_BOX(vbox),scroll);
+
+    /* Bottom bar */
     GtkWidget *bot=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(bot,"toolbar");gtk_box_append(GTK_BOX(vbox),bot);
-    GtkWidget *sp=gtk_label_new("");gtk_widget_set_hexpand(sp,TRUE);gtk_box_append(GTK_BOX(bot),sp);
-    GtkWidget *del_btn=gtk_button_new_with_label("🗑 Delete");
+    GtkWidget *sp2=gtk_label_new("");gtk_widget_set_hexpand(sp2,TRUE);gtk_box_append(GTK_BOX(bot),sp2);
+    GtkWidget *del_btn=gtk_button_new_with_label("Delete");
     gtk_widget_add_css_class(del_btn,"btn-danger");gtk_box_append(GTK_BOX(bot),del_btn);
+
+    /* Signals */
+    g_signal_connect(t_date_filter, "changed",G_CALLBACK(on_t_filter),NULL);
+    g_signal_connect(t_class_filter,"changed",G_CALLBACK(on_t_filter),NULL);
+    g_signal_connect(t_sec_filter,  "changed",G_CALLBACK(on_t_filter),NULL);
+    g_signal_connect(clr,"clicked",G_CALLBACK(on_t_clear),NULL);
+    g_signal_connect(ref,"clicked",G_CALLBACK(on_refresh_t),NULL);
     g_signal_connect(add_btn,"clicked",G_CALLBACK(on_add_test),tv);
     g_signal_connect(del_btn,"clicked",G_CALLBACK(on_delete_test),tv);
-    reload_tests();return vbox;
+
+    reload_tests();
+    return vbox;
 }

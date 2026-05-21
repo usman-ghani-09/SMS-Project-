@@ -39,6 +39,7 @@ static void frow(GtkWidget *g,int row,const char *l,GtkWidget **o){
     if(o)*o=e;
 }
 
+/* ── ADD ── */
 typedef struct{
     GtkWidget *e_roll,*e_name,*e_class,*e_sec,*e_age;
     GtkWidget *e_gender,*e_dob,*e_phone,*e_email,*e_enroll;
@@ -55,8 +56,20 @@ static void cb_save(GtkButton *b,gpointer ud){
     if(!*rs||!*nm||!*cl||!*sc||!*ag||!*gn){
         gtk_label_set_text(GTK_LABEL(c->err),"⚠ Fill required fields.");return;}
     int roll=atoi(rs);
-    if(findStudentByRoll(roll).student_id!=0){
-        gtk_label_set_text(GTK_LABEL(c->err),"⚠ Roll No already exists.");return;}
+    /* Roll must be unique within same class AND section only */
+    {
+        FILE *_chk=fopen(FILE_STUDENTS,"rb"); Student _s;
+        while(_chk && fread(&_s,sizeof _s,1,_chk)){
+            if(_s.roll_no==roll &&
+               strcasecmp(_s.class_name,cl)==0 &&
+               strcasecmp(_s.section,sc)==0){
+                fclose(_chk);
+                gtk_label_set_text(GTK_LABEL(c->err),
+                    "⚠ Roll No already exists in this Class & Section.");return;
+            }
+        }
+        if(_chk) fclose(_chk);
+    }
     Student s;memset(&s,0,sizeof s);
     s.student_id=getNextStudentId();s.roll_no=roll;s.age=atoi(ag);
     strncpy(s.name,nm,49);strncpy(s.class_name,cl,19);
@@ -116,10 +129,11 @@ static void on_add(GtkButton *btn,gpointer tv){
     gtk_window_present(GTK_WINDOW(dlg));
 }
 
-typedef struct{GtkWidget *e_name,*e_class,*e_sec,*e_age,*e_phone,*e_email,*dlg;int roll;}EditCtx;
+/* ── EDIT ── */
+typedef struct{GtkWidget *e_name,*e_class,*e_sec,*e_age,*e_phone,*e_email,*dlg;int student_id;}EditCtx;
 static void cb_update(GtkButton *b,gpointer ud){
     (void)b;EditCtx *c=ud;
-    Student u=findStudentByRoll(c->roll);
+    Student u=findStudentById(c->student_id);
     strncpy(u.name,gtk_editable_get_text(GTK_EDITABLE(c->e_name)),49);
     strncpy(u.class_name,gtk_editable_get_text(GTK_EDITABLE(c->e_class)),19);
     strncpy(u.section,gtk_editable_get_text(GTK_EDITABLE(c->e_sec)),4);
@@ -127,14 +141,14 @@ static void cb_update(GtkButton *b,gpointer ud){
     strncpy(u.phone,gtk_editable_get_text(GTK_EDITABLE(c->e_phone)),14);
     strncpy(u.email,gtk_editable_get_text(GTK_EDITABLE(c->e_email)),49);
     FILE *fp=fopen(FILE_STUDENTS,"rb");FILE *tmp=fopen("tmp_s.dat","wb");
-    if(fp&&tmp){Student s;while(fread(&s,sizeof s,1,fp))fwrite(s.roll_no==c->roll?&u:&s,sizeof s,1,tmp);
+    if(fp&&tmp){Student s;while(fread(&s,sizeof s,1,fp))fwrite(s.student_id==u.student_id?&u:&s,sizeof s,1,tmp);
         fclose(fp);fclose(tmp);remove(FILE_STUDENTS);rename("tmp_s.dat",FILE_STUDENTS);}
     reload_students(); refresh_dashboard();gtk_window_destroy(GTK_WINDOW(c->dlg));g_free(c);
 }
 static void on_edit(GtkButton *btn,gpointer tv_ptr){
-    (void)btn;int roll=get_sel_roll(GTK_TREE_VIEW(tv_ptr));
-    if(roll<0){show_message_dialog(GTK_WINDOW(main_window),"","Select a student first.",GTK_MESSAGE_WARNING);return;}
-    Student old=findStudentByRoll(roll);if(old.student_id==0)return;
+    (void)btn;int sid=get_sel_id(GTK_TREE_VIEW(tv_ptr));
+    if(sid<0){show_message_dialog(GTK_WINDOW(main_window),"","Select a student first.",GTK_MESSAGE_WARNING);return;}
+    Student old=findStudentById(sid);if(old.student_id==0)return;
     GtkWidget *dlg=gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(dlg),"Edit Student");
     gtk_window_set_modal(GTK_WINDOW(dlg),TRUE);
@@ -155,7 +169,7 @@ static void on_edit(GtkButton *btn,gpointer tv_ptr){
     frow(grid,0,"Full Name",&ctx->e_name);frow(grid,1,"Class",&ctx->e_class);
     frow(grid,2,"Section",&ctx->e_sec);frow(grid,3,"Age",&ctx->e_age);
     frow(grid,4,"Phone",&ctx->e_phone);frow(grid,5,"Email",&ctx->e_email);
-    ctx->dlg=dlg;ctx->roll=roll;
+    ctx->dlg=dlg;ctx->student_id=old.student_id;
     char ab[8];snprintf(ab,sizeof ab,"%d",old.age);
     gtk_editable_set_text(GTK_EDITABLE(ctx->e_name),old.name);
     gtk_editable_set_text(GTK_EDITABLE(ctx->e_class),old.class_name);
@@ -174,17 +188,19 @@ static void on_edit(GtkButton *btn,gpointer tv_ptr){
     gtk_window_present(GTK_WINDOW(dlg));
 }
 
-typedef struct{GtkWidget *dlg;int roll;}DelCtx;
+/* ── DELETE ── */
+typedef struct{GtkWidget *dlg;int student_id;}DelCtx;
 static void cb_del(GtkButton *b,gpointer ud){
     (void)b;DelCtx *c=ud;
     FILE *fp=fopen(FILE_STUDENTS,"rb");FILE *tmp=fopen("tmp_s.dat","wb");
-    if(fp&&tmp){Student s;while(fread(&s,sizeof s,1,fp))if(s.roll_no!=c->roll)fwrite(&s,sizeof s,1,tmp);
+    if(fp&&tmp){Student s;while(fread(&s,sizeof s,1,fp))if(s.student_id!=c->student_id)fwrite(&s,sizeof s,1,tmp);
         fclose(fp);fclose(tmp);remove(FILE_STUDENTS);rename("tmp_s.dat",FILE_STUDENTS);}
     reload_students(); refresh_dashboard();gtk_window_destroy(GTK_WINDOW(c->dlg));g_free(c);
 }
 static void on_delete(GtkButton *btn,gpointer tv_ptr){
-    (void)btn;int roll=get_sel_roll(GTK_TREE_VIEW(tv_ptr));
-    if(roll<0){show_message_dialog(GTK_WINDOW(main_window),"","Select a student first.",GTK_MESSAGE_WARNING);return;}
+    (void)btn;int sid=get_sel_id(GTK_TREE_VIEW(tv_ptr));
+    if(sid<0){show_message_dialog(GTK_WINDOW(main_window),"","Select a student first.",GTK_MESSAGE_WARNING);return;}
+    Student _sd=findStudentById(sid);int roll=_sd.roll_no;
     GtkWidget *dlg=gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(dlg),"Confirm Delete");
     gtk_window_set_modal(GTK_WINDOW(dlg),TRUE);
@@ -204,10 +220,12 @@ static void on_delete(GtkButton *btn,gpointer tv_ptr){
     g_signal_connect_swapped(cancel,"clicked",G_CALLBACK(gtk_window_destroy),dlg);
     GtkWidget *del=gtk_button_new_with_label("Delete");
     gtk_widget_add_css_class(del,"btn-danger");gtk_box_append(GTK_BOX(row),del);
-    DelCtx *ctx=g_new0(DelCtx,1);ctx->dlg=dlg;ctx->roll=roll;
+    DelCtx *ctx=g_new0(DelCtx,1);ctx->dlg=dlg;ctx->student_id=sid;
     g_signal_connect(del,"clicked",G_CALLBACK(cb_del),ctx);
     gtk_window_present(GTK_WINDOW(dlg));
 }
+
+/* ── VIEW PROFILE ── */
 static void on_view_profile(GtkButton *btn,gpointer tv_ptr){
     (void)btn;
     int id=get_sel_id(GTK_TREE_VIEW(tv_ptr));
@@ -216,6 +234,7 @@ static void on_view_profile(GtkButton *btn,gpointer tv_ptr){
     switch_to_content("profile");
 }
 
+/* ── SEARCH ── */
 static void on_search(GtkSearchEntry *se,gpointer ud){
     (void)ud;
     const char *q=gtk_editable_get_text(GTK_EDITABLE(se));
@@ -244,20 +263,25 @@ static void on_refresh_s(GtkButton *b,gpointer d){(void)b;(void)d;reload_student
 GtkWidget *build_students_page(void){
     GtkWidget *vbox=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
 
+    /* Header */
     GtkWidget *hdr=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);
     gtk_widget_add_css_class(hdr,"page-header");
     gtk_box_append(GTK_BOX(vbox),hdr);
     GtkWidget *tb=gtk_box_new(GTK_ORIENTATION_VERTICAL,2);
     gtk_widget_set_hexpand(tb,TRUE);gtk_box_append(GTK_BOX(hdr),tb);
-    GtkWidget *title=gtk_label_new("🎓  Students");
+
+
+
+    GtkWidget *title=gtk_label_new("Students");
     gtk_widget_add_css_class(title,"page-title");gtk_widget_set_halign(title,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),title);
     GtkWidget *sub=gtk_label_new("Manage student records");
     gtk_widget_add_css_class(sub,"page-subtitle");gtk_widget_set_halign(sub,GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(tb),sub);
-    GtkWidget *add_btn=gtk_button_new_with_label("＋ Add Student");
+    GtkWidget *add_btn=gtk_button_new_with_label("Add Student");
     gtk_widget_add_css_class(add_btn,"btn-primary");gtk_box_append(GTK_BOX(hdr),add_btn);
 
+    /* Toolbar */
     GtkWidget *tb2=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(tb2,"toolbar");gtk_box_append(GTK_BOX(vbox),tb2);
     GtkWidget *se=gtk_search_entry_new();
@@ -265,7 +289,8 @@ GtkWidget *build_students_page(void){
     gtk_widget_set_hexpand(se,TRUE);gtk_box_append(GTK_BOX(tb2),se);
     GtkWidget *ref=gtk_button_new_with_label("↺");gtk_box_append(GTK_BOX(tb2),ref);
 
-        s_store=gtk_list_store_new(N_S_COLS,G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,
+    /* List store */
+    s_store=gtk_list_store_new(N_S_COLS,G_TYPE_INT,G_TYPE_INT,G_TYPE_STRING,
         G_TYPE_STRING,G_TYPE_STRING,G_TYPE_INT,G_TYPE_STRING,G_TYPE_STRING,G_TYPE_STRING);
     GtkWidget *tv=gtk_tree_view_new_with_model(GTK_TREE_MODEL(s_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(tv),TRUE);
@@ -292,14 +317,15 @@ GtkWidget *build_students_page(void){
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),tv);
     gtk_box_append(GTK_BOX(vbox),scroll);
 
-      GtkWidget *bot=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
+    /* Bottom bar */
+    GtkWidget *bot=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     gtk_widget_add_css_class(bot,"toolbar");gtk_box_append(GTK_BOX(vbox),bot);
     GtkWidget *sp=gtk_label_new("");gtk_widget_set_hexpand(sp,TRUE);gtk_box_append(GTK_BOX(bot),sp);
-    GtkWidget *prof_btn=gtk_button_new_with_label("👤 Profile");
+    GtkWidget *prof_btn=gtk_button_new_with_label("Profile");
     gtk_widget_add_css_class(prof_btn,"btn-info");gtk_box_append(GTK_BOX(bot),prof_btn);
-    GtkWidget *edit_btn=gtk_button_new_with_label("✏ Edit");
+    GtkWidget *edit_btn=gtk_button_new_with_label("Edit");
     gtk_widget_add_css_class(edit_btn,"btn-warning");gtk_box_append(GTK_BOX(bot),edit_btn);
-    GtkWidget *del_btn=gtk_button_new_with_label("🗑 Delete");
+    GtkWidget *del_btn=gtk_button_new_with_label("Delete");
     gtk_widget_add_css_class(del_btn,"btn-danger");gtk_box_append(GTK_BOX(bot),del_btn);
 
     g_signal_connect(add_btn,"clicked",G_CALLBACK(on_add),tv);
